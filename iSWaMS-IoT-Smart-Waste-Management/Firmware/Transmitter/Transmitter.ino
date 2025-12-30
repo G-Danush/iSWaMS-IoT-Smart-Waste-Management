@@ -1,0 +1,765 @@
+#include <WiFi.h>                        // Library for ESP-32 WiFi
+#include <PubSubClient.h>                // library for MQTT publishing
+#include <Wire.h>                        // library for I2C
+#include <DHT.h>                         // library for DHT22 
+#include <TinyGPS++.h>                   // library for NEO-6M GPS
+#include <Adafruit_PWMServoDriver.h>     // library for PCA9685 Servo Driver
+#include <SPI.h>                         // Shared SPI bus library for RFID-RC522 & LoRa Ra-02
+#include <MFRC522.h>                     // library for RFID-RC522
+#include <LoRa.h>                        // library for LoRa Ra-02
+#include <ArduinoJson.h>                 // library for Transmitting ArduinoJson Payload (used instead of string concatenation)
+
+// ==========================================
+//              PIN DEFINITIONS
+// ==========================================
+
+// -------- SHARED SPI BUS (LoRa + RFID) --------
+#define SPI_SCK     18
+#define SPI_MISO    19
+#define SPI_MOSI    23
+
+// -------- RFID RC522 Pins --------
+#define RFID_SDA     5   
+#define RFID_RST    33   
+
+// -------- LoRa Ra-02 Pins --------
+#define LORA_NSS    32   
+#define LORA_RST    14   
+#define LORA_DIO0    4   
+
+// -------- HC-SR04 SENSOR --------
+#define TRIG_PIN    25
+#define ECHO_PIN    34
+
+//-------- LED --------
+#define LED_PIN      2
+
+//-------- PIR SENSOR --------
+#define PIR_PIN     27
+
+//-------- DHT22 SENSOR --------
+#define DHT_PIN     26
+#define DHT_TYPE    DHT22
+
+// -------- I2C & GPS --------
+#define I2C_SDA     21
+#define I2C_SCL     22
+#define GPS_RX      16
+#define GPS_TX      17
+
+// -------- FLAME SENSOR --------
+#define FLAME_AO    15   // Analog output (intensity)
+#define FLAME_DO    13   // Digital output (LOW = flame detected)
+
+// ==========================================
+//              GLOBAL OBJECTS
+// ==========================================
+
+// Bin Calibration
+#define MAX_DISTANCE 16.0
+#define MIN_DISTANCE 3.0
+#define FULL_LEVEL 90
+
+// *** SERVO CONFIGURATION ***
+#define SERVO_MIN 150  // Min pulse length (approx 0 degrees)
+#define SERVO_MAX 600  // Max pulse length (approx 180 degrees)
+#define SERVO_PORT_1 11
+#define SERVO_PORT_2 15
+
+// WiFi & MQTT
+const char* ssid = "Batman_ACT";
+const char* password = "65716553";
+const char* mqtt_server = "thingsboard.cloud";
+const int mqtt_port = 1883;
+const char* access_token = "es57KQNLXHyy0DDrhvri";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Sensors
+DHT dht(DHT_PIN, DHT_TYPE);
+TinyGPSPlus gps;
+HardwareSerial GPS_Serial(2);
+MFRC522 rfid(RFID_SDA, RFID_RST); 
+Adafruit_PWMServoDriver pca9685 = Adafruit_PWMServoDriver();
+
+// Logic Variables
+bool pcaConnected = false;
+bool gpsSerialStarted = false;
+bool gpsConnected = false;
+unsigned long lastGPSdata = 0;
+
+unsigned long lastCalibrationTime = 0;
+const unsigned long calibrationInterval = 3600000UL; 
+
+// LoRa Logic
+bool loraOK = false;
+unsigned long lastLoRaRetry = 0;
+const unsigned long loRaRetryInterval = 30000UL;
+unsigned long lastLoRaTime = 0; 
+
+// *** NEW: LoRa Sequence Counter for Cyclic Transmission ***
+int loraSequence = 0; 
+// 0=GPS, 1=Environment(DHT/Flame), 2=Bin(Ultra/PIR), 3=RFID, 4=System
+
+// RFID Logic
+String lastRfidUID = "None";
+unsigned long lastRfidTime = 0;
+unsigned long lastTelemetryTime = 0;
+
+// ===== RFID multi-user table + timeout (Case B: global reset) =====
+const int MAX_USERS = 20;
+struct RfidUser {
+  String uid;
+  uint8_t state; // 0 = NONE, 1 = ENTRY, 2 = EXIT
+  unsigned long lastSeen;
+};
+RfidUser users[MAX_USERS];
+int userCount = 0;
+
+unsigned long lastRFIDActivity = 0; // last time any RFID tap happened
+const unsigned long rfidGlobalTimeout = 60000UL; // 1 minute
+bool rfidTimeoutAlertSent = false; // to avoid repeating timeout alert until activity resumes
+
+// Telemetry alert flags (kept locally to set when needed)
+bool alert_rfid_timeout = false;
+
+// Initialization reporting
+bool initPayloadSent = false;
+bool init_wifi = false;
+bool init_mqtt = false;
+bool init_pca = false;
+bool init_rfid_flag = false;
+bool init_lora = false;
+bool init_gps = false;
+bool init_dht = false;
+bool init_ultrasonic = false;
+bool init_pir = false;
+bool init_flame = false;
+
+// ==========================================
+//              FUNCTIONS
+// ==========================================
+
+void setupWiFi() {
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (millis() - start > 20000) { 
+      Serial.println("\nWarning: WiFi connection timeout");
+      break;
+    }
+  }
+  init_wifi = (WiFi.status() == WL_CONNECTED);
+  if (init_wifi) {
+    Serial.println("\nWiFi Connected!");
+    Serial.print("IP: "); Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi not connected at setup end.");
+  }
+}
+
+void reconnectMQTT() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (!client.connected()) {
+    Serial.print("Connecting MQTT...");
+    String clientId = "ESP32_Bin_" + String(random(0xffff), HEX);
+    // ThingsBoard: clientId can be anything, access_token used as username
+    if (client.connect(clientId.c_str(), access_token, NULL)) {
+      Serial.println("Connected to MQTT!");
+      init_mqtt = true;
+    } else {
+      Serial.print("Failed rc="); Serial.println(client.state());
+      init_mqtt = false;
+    }
+  } else {
+    init_mqtt = true;
+  }
+}
+
+// -------- Helpers --------
+float getDistanceCM() {
+  digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000); 
+  if (duration == 0) return MAX_DISTANCE + 1; 
+  return (duration * 0.0343) / 2.0;
+}
+
+float getLevelPercent(float distance) {
+  if (distance > MAX_DISTANCE) distance = MAX_DISTANCE;
+  if (distance < MIN_DISTANCE) distance = MIN_DISTANCE;
+  return ((MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE)) * 100.0;
+}
+
+// -------- UPDATED GPS READ FUNCTION --------
+void readGPS() {
+  // Continuously feed TinyGPS++ with incoming bytes
+  while (GPS_Serial.available() > 0) {
+    gps.encode(GPS_Serial.read());
+  }
+
+  // Mark GPS as "connected" only when we have a valid location fix
+  gpsConnected = gps.location.isValid();
+}
+
+// -------- Servo Control Function --------
+// open = true (Ending Position), open = false (Starting Position)
+void setServos(bool open) {
+
+  int pulse = open ? 2400 : 600;   // MG90 typical
+
+  pca9685.writeMicroseconds(SERVO_PORT_1, pulse);
+  pca9685.writeMicroseconds(SERVO_PORT_1, pulse);
+  
+  Serial.print("⚙️ Servos moved to: ");
+  Serial.println(open ? "OPEN (Ending Pos)" : "CLOSED (Starting Pos)");
+}
+
+// -------- Hardware Initialization (Shared SPI) --------
+void initRFID() {
+  digitalWrite(LORA_NSS, HIGH);
+  
+  rfid.PCD_Init();
+  rfid.PCD_SetAntennaGain(rfid.RxGain_max);
+  Serial.println("RC522 initialized");
+  init_rfid_flag = true;
+}
+
+// Initialize LoRa
+bool tryInitLoRa() {
+  Serial.print("Initializing LoRa ");
+  digitalWrite(RFID_SDA, HIGH); // Deselect RFID
+
+  // Prepare LoRa Pins
+  pinMode(LORA_NSS, OUTPUT);
+  pinMode(LORA_RST, OUTPUT);
+  digitalWrite(LORA_NSS, HIGH);
+
+  // Hard Reset
+  digitalWrite(LORA_RST, HIGH); delay(100);
+  digitalWrite(LORA_RST, LOW);  delay(100);
+  digitalWrite(LORA_RST, HIGH); delay(200);
+
+  // Assign SPI
+  LoRa.setSPI(SPI);
+  LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
+  LoRa.setSyncWord(0xF3);  // ensure sync word is set before begin
+
+  if (LoRa.begin(433E6)) {
+    Serial.println("Success!");
+    // Set LoRa TX Power (Recommended 18 for MB102 stability)
+    LoRa.setTxPower(18);
+    return true;
+  }
+
+  Serial.println("Failed.");
+  return false;
+}
+
+// ===== RFID user helpers =====
+int findUserIndex(const String &uid) {
+  for (int i = 0; i < userCount; i++) {
+    if (users[i].uid == uid) return i;
+  }
+  return -1;
+}
+
+int addUser(const String &uid) {
+  if (userCount >= MAX_USERS) return -1;
+  users[userCount].uid = uid;
+  users[userCount].state = 0; // NONE by default
+  users[userCount].lastSeen = millis();
+  userCount++;
+  return userCount - 1;
+}
+
+void clearAllUsers() {
+  for (int i = 0; i < userCount; i++) {
+    users[i].uid = "";
+    users[i].state = 0;
+    users[i].lastSeen = 0;
+  }
+  userCount = 0;
+}
+
+// Read RFID Tag
+void readRFID() {
+  // Ensure LoRa is quiet
+  digitalWrite(LORA_NSS, HIGH);
+  
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  String rfidStr = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    if (rfid.uid.uidByte[i] < 0x10) rfidStr += "0";
+    rfidStr += String(rfid.uid.uidByte[i], HEX);
+  }
+  rfidStr.toUpperCase();
+  lastRfidUID = rfidStr;
+  lastRfidTime = millis();
+  lastRFIDActivity = millis();        // update global last activity
+  rfidTimeoutAlertSent = false;       // activity resumed -> clear timeout-sent flag
+  alert_rfid_timeout = false;         // clear the alert flag when activity happens
+
+  // Find or add user
+  int idx = findUserIndex(rfidStr);
+  if (idx == -1) {
+    idx = addUser(rfidStr);
+    Serial.print("New RFID user added idx="); Serial.print(idx);
+    Serial.print(" UID="); Serial.println(rfidStr);
+  }
+
+  if (idx >= 0) {
+    // toggle: if NONE or EXIT -> ENTRY, if ENTRY -> EXIT
+    uint8_t newState;
+    if (users[idx].state == 1) newState = 2; // ENTRY -> EXIT
+    else newState = 1; // NONE or EXIT -> ENTRY
+    users[idx].state = newState;
+    users[idx].lastSeen = millis();
+
+    Serial.print("🏷️ RFID Tag: "); Serial.print(rfidStr);
+    Serial.print(" -> ");
+    Serial.println((newState == 1) ? "ENTRY" : "EXIT");
+  }
+
+  // --- SERVO LOGIC ---
+  // If ANY user is currently in ENTRY state, keep servos OPEN.
+  // If ALL users have exited (or list is empty), CLOSE servos.
+  bool anyoneInside = false;
+  for(int i = 0; i < userCount; i++) {
+      if(users[i].state == 1) {
+          anyoneInside = true;
+          break;
+      }
+  }
+
+  if (anyoneInside) {
+      setServos(true); // Move to Ending Position (Open)
+  } else {
+      setServos(false); // Move to Starting Position (Closed)
+  }
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+}
+
+// Send initialization JSON to ThingsBoard (once)
+void publishInitStatus() {
+  // Construct JSON using ArduinoJson
+  JsonDocument doc; 
+
+  doc["init_wifi"] = init_wifi ? 1 : 0;
+  doc["init_mqtt"] = init_mqtt ? 1 : 0;
+  doc["init_pca"] = init_pca ? 1 : 0;
+  doc["init_rfid"] = init_rfid_flag ? 1 : 0;
+  doc["init_lora"] = init_lora ? 1 : 0;
+  doc["init_gps"] = init_gps ? 1 : 0;
+  doc["init_dht"] = init_dht ? 1 : 0;
+  doc["init_ultrasonic"] = init_ultrasonic ? 1 : 0;
+  doc["init_pir"] = init_pir ? 1 : 0;
+  doc["init_flame"] = init_flame ? 1 : 0;
+
+  char payloadBuffer[512];
+  serializeJson(doc, payloadBuffer);
+
+  if (client.connected()) {
+    client.publish("v1/devices/me/telemetry", payloadBuffer);
+    Serial.print("☁️ Init payload sent to MQTT: ");
+    Serial.println(payloadBuffer);
+    initPayloadSent = true;
+  } else {
+    Serial.println("⚠️ MQTT not connected yet; will send init payload when connected");
+  }
+}
+
+// ==========================================
+//              SETUP
+// ==========================================
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  Serial.println("\n\n===== SYSTEM BOOT =====");
+
+  // Pin Modes
+  pinMode(TRIG_PIN, OUTPUT); pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);  digitalWrite(LED_PIN, LOW);
+  pinMode(PIR_PIN, INPUT);
+
+  pinMode(FLAME_DO, INPUT_PULLUP); // DO is active LOW for flame
+  // FLAME_AO is analog input - no pinMode required
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  // I2C / PCA9685 detection (serial friendly)
+  Serial.println("====================================");
+  Serial.println("🔍 Checking PCA9685 connection...");
+  Serial.print("🔧 Using I2C Pins -> SDA: ");
+  Serial.print(I2C_SDA);
+  Serial.print(" | SCL: ");
+  Serial.println(I2C_SCL);
+
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Serial.println("📡 Scanning I2C address 0x40...");
+
+  Wire.beginTransmission(0x40);
+  uint8_t error = Wire.endTransmission();
+
+  if (error == 0) {
+      pcaConnected = true;
+      init_pca = true;
+      Serial.println("✅ PCA9685 FOUND at address 0x40!");
+      Serial.println("⚙️ Initializing PCA9685...");
+      pca9685.begin();
+      pca9685.setPWMFreq(50);
+      
+      // Initialize Servos to Closed/Starting Position
+      setServos(false);
+      
+      Serial.println("🎉 PCA9685 Initialized Successfully!");
+  } 
+  else if (error == 4) {
+      pcaConnected = false;
+      init_pca = false;
+      Serial.println("❌ Unknown I2C error while detecting PCA9685!");
+  }
+  else {
+      pcaConnected = false;
+      init_pca = false;
+      Serial.println("⚠️ PCA9685 NOT FOUND at address 0x40!");
+      Serial.print("I2C Error Code: ");
+      Serial.println(error);
+  }
+
+  Serial.println("====================================");
+
+  // Sensors
+  Serial.println("🔧 Initializing sensors...");
+
+  // DHT
+  dht.begin();
+  // Try a quick read to confirm DHT presence (may return NaN on some DHT modules immediately)
+  float t_check = dht.readTemperature();
+  float h_check = dht.readHumidity();
+  if (!isnan(t_check) || !isnan(h_check)) {
+    init_dht = true;
+    Serial.println("✅ DHT22 appears responsive (quick check succeeded).");
+  } else {
+    init_dht = true; // still mark true: we consider DHT wired even if first read fails; it may need time
+    Serial.println("⚠️ DHT22 initial read returned NaN — it may still work. Marking as present.");
+  }
+
+  // Flame quick check (analog + digital)
+  int flameAnalogCheck = analogRead(FLAME_AO);
+  int flameDigitalCheck = digitalRead(FLAME_DO);
+  // We mark flame as present if AO returns a plausible reading or DO is HIGH/LOW
+  // Note: analogRead can be 0 even in dark — presence check is simple
+  init_flame = true; // we assume wired; report actual readings below
+  Serial.print("🔥 Flame sensor initial analog reading (AO="); Serial.print(FLAME_AO); Serial.print("): ");
+  Serial.println(flameAnalogCheck);
+  Serial.print("🔥 Flame sensor initial digital reading (DO="); Serial.print(FLAME_DO); Serial.print(") [LOW = flame]: ");
+  Serial.println(flameDigitalCheck == LOW ? "LOW (flame)" : "HIGH (no flame)");
+
+  // GPS (UART start)
+  GPS_Serial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
+  gpsSerialStarted = true;
+  init_gps = true;
+  Serial.print("✅ GPS serial started on RX=");
+  Serial.print(GPS_RX);
+  Serial.print(" TX=");
+  Serial.println(GPS_TX);
+
+  // Ultrasonic & PIR basic init flag
+  init_ultrasonic = true;
+  init_pir = true;
+  Serial.println("✅ Ultrasonic (HC-SR04) pin and PIR pin configured.");
+
+  // WiFi & MQTT setup
+  setupWiFi();
+  client.setServer(mqtt_server, mqtt_port);
+  
+  // Increase buffer size for large JSON payloads
+  client.setBufferSize(1024); 
+  
+  // try connecting to MQTT immediately (if WiFi OK)
+  reconnectMQTT();
+
+  // -------- SHARED SPI INIT --------
+  // 1. Manually Deselect both chips immediately to prevent conflicts
+  pinMode(LORA_NSS, OUTPUT); digitalWrite(LORA_NSS, HIGH);
+  pinMode(RFID_SDA, OUTPUT); digitalWrite(RFID_SDA, HIGH);
+
+  // 2. Start SPI Bus ONCE (with your chosen pins)
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+  // 3. Init RFID
+  Serial.println("Initializing RFID...");
+  initRFID();
+  Serial.println("✅ RFID Ready");
+
+  // 4. Init LoRa
+  loraOK = tryInitLoRa();
+  init_lora = loraOK;
+  if (!loraOK) lastLoRaRetry = millis();
+
+  // Initialize RFID user table empty
+  clearAllUsers();
+  lastRFIDActivity = millis();
+
+  // Print a neat hardware init summary to Serial
+  Serial.println("\n--- INITIALIZATION SUMMARY ---");
+  Serial.print("WiFi: "); Serial.println(init_wifi ? "OK" : "NOT CONNECTED");
+  Serial.print("MQTT: "); Serial.println(init_mqtt ? "OK" : "NOT CONNECTED");
+  Serial.print("PCA9685: "); Serial.println(init_pca ? "FOUND" : "NOT FOUND");
+  Serial.print("RFID RC522: "); Serial.println(init_rfid_flag ? "INITIALIZED" : "NOT INITIALIZED");
+  Serial.print("LoRa: "); Serial.println(init_lora ? "INITIALIZED" : "NOT INITIALIZED");
+  Serial.print("GPS UART: "); Serial.println(init_gps ? "STARTED" : "NOT STARTED");
+  Serial.print("DHT22: "); Serial.println(init_dht ? "PRESENT" : "NOT PRESENT");
+  Serial.print("Flame Sensor (AO/DO): "); Serial.println(init_flame ? "PRESENT" : "NOT PRESENT");
+  Serial.print("HC-SR04: "); Serial.println(init_ultrasonic ? "PIN OK" : "PIN NOT OK");
+  Serial.print("PIR: "); Serial.println(init_pir ? "PIN OK" : "PIN NOT OK");
+  Serial.println("-------------------------------");
+
+  // If MQTT is connected now, send init status. Otherwise it will be sent from loop when MQTT becomes available.
+  if (client.connected() && !initPayloadSent) {
+    publishInitStatus();
+  } else {
+    Serial.println("Init payload will be sent once MQTT connects.");
+  }
+}
+
+// ==========================================
+//              LOOP
+// ==========================================
+void loop() {
+  unsigned long now = millis();
+
+  // 1. Maintenance (no flame calibration)
+  if (!loraOK && (now - lastLoRaRetry >= loRaRetryInterval)) {
+    loraOK = tryInitLoRa();
+    initRFID();
+    lastLoRaRetry = now;
+    init_lora = loraOK;
+  }
+
+  // Check global RFID inactivity timeout (Case B)
+  if ((now - lastRFIDActivity) >= rfidGlobalTimeout && !rfidTimeoutAlertSent) {
+    // If there were any users, clear them and set an alert
+    if (userCount > 0) {
+      Serial.println("⏱️ RFID inactivity timeout - clearing all user states");
+      clearAllUsers();
+      
+      // *** TIMEOUT OCCURRED: CLOSE SERVOS ***
+      setServos(false);
+
+      alert_rfid_timeout = true;
+      rfidTimeoutAlertSent = true;
+    }
+  }
+
+  // MQTT maintenance & ensure initial payload is sent once
+  if (!client.connected()) reconnectMQTT();
+  client.loop();
+
+  if (client.connected() && !initPayloadSent) {
+    // update init_mqtt true and send init payload
+    init_mqtt = true;
+    publishInitStatus();
+  }
+
+  // 2. Fast Reads
+  readGPS();
+  readRFID();
+
+  // 3. Telemetry (Every 5 seconds)
+  if (now - lastTelemetryTime >= 5000) {
+    lastTelemetryTime = now;
+
+    // Gather Data
+    float dist = getDistanceCM();
+    float level = getLevelPercent(dist);
+    int motion = digitalRead(PIR_PIN);
+    float hum = dht.readHumidity();
+    float temp = dht.readTemperature();
+    if (isnan(hum)) hum = 0; 
+    if (isnan(temp)) temp = 0;
+
+    // Flame readings
+    int flameAnalog = analogRead(FLAME_AO);     // 0..4095 (12-bit)
+    int flameDigital = digitalRead(FLAME_DO);   // LOW = flame detected
+    bool a_flame = (flameDigital == LOW);
+
+    double lat = gps.location.isValid() ? gps.location.lat() : 0.0;
+    double lng = gps.location.isValid() ? gps.location.lng() : 0.0;
+    
+    // Alerts
+    bool a_motion = (motion == HIGH);
+    bool a_temp = (temp > 45); 
+    bool a_rfid = (now - lastRfidTime < 5000); 
+    bool a_bin_full = (level >= FULL_LEVEL);
+
+    if(a_motion) Serial.println("🚨 MOTION DETECTED");
+    if(a_temp)   Serial.println("🌡️ HIGH TEMPERATURE ALERT!"); 
+    if(a_rfid)   Serial.println("🆔 RFID SCANNED");
+    if(a_bin_full) Serial.println("📦 BIN FULL");
+    if(a_flame) Serial.println("🔥 FLAME DETECTED");
+    if(alert_rfid_timeout) Serial.println("⚠️ RFID TIMEOUT ALERT (global reset)");
+
+    // --- Determine Entry/Exit Strings ---
+    String lastUserMode = "NONE";
+    if (lastRfidUID != "None") {
+      int idx = findUserIndex(lastRfidUID);
+      if (idx >= 0) lastUserMode = (users[idx].state == 1) ? "ENTRY" : (users[idx].state == 2) ? "EXIT" : "NONE";
+    }
+
+    // ===============================================
+    //              MQTT SEND (FULL DATA)
+    // ===============================================
+    
+    JsonDocument doc; 
+
+    doc["distance"]             = serialized(String(dist, 1));
+    doc["level"]                = serialized(String(level, 1));
+    doc["motion"]               = a_motion ? 1 : 0;
+    doc["dht_temp"]             = serialized(String(temp, 1));
+    doc["humidity"]             = serialized(String(hum, 1));
+    
+    doc["gps_connected"]        = gpsConnected ? 1 : 0;
+    doc["lat"]                  = serialized(String(lat, 6));
+    doc["lng"]                  = serialized(String(lng, 6));
+    
+    doc["rfid_uid"]             = lastRfidUID;
+    doc["flame_analog"]         = flameAnalog;
+    doc["flame_digital"]        = (flameDigital == LOW ? 1 : 0);
+    doc["alert_flame"]          = a_flame ? 1 : 0;
+    
+    doc["pca_status"]           = pcaConnected ? 1 : 0;
+    doc["rfid_users_count"]     = userCount;
+
+    doc["rfid_user_state"]      = lastUserMode; 
+    
+    doc["alert_motion"]         = a_motion ? 1 : 0;
+    doc["alert_temperature"]    = a_temp ? 1 : 0;
+    doc["alert_rfid"]           = a_rfid ? 1 : 0;
+    doc["alert_rfid_timeout"]   = alert_rfid_timeout ? 1 : 0;
+    doc["alert_bin_full"]       = a_bin_full ? 1 : 0;
+
+    // --- SEND MQTT ---
+    if (WiFi.status() == WL_CONNECTED && client.connected()) {
+      char mqttBuffer[1024];
+      serializeJson(doc, mqttBuffer); 
+
+      if(client.publish("v1/devices/me/telemetry", mqttBuffer)) {
+         Serial.print("☁️ MQTT Sent: ");
+         Serial.println(mqttBuffer);
+      } else {
+         Serial.println("⚠️ MQTT Publish Failed (Payload too big?)");
+      }
+    }
+
+    // ===============================================
+    //      LORA SEND (CYCLIC + GLOBAL ALERTS)
+    // ===============================================
+    
+    if (loraOK) {
+        JsonDocument loraDoc;
+        String logType = "";
+
+        // 1. GLOBAL ALERTS (Included in EVERY packet, including RFID Entry/Exit)
+        loraDoc["alert_temp"]  = a_temp ? 1 : 0;
+        loraDoc["alert_flame"] = a_flame ? 1 : 0;
+        loraDoc["alert_full"]  = a_bin_full ? 1 : 0;
+        loraDoc["alert_tout"]  = alert_rfid_timeout ? 1 : 0;
+        loraDoc["alert_entry"] = (lastUserMode == "ENTRY" && a_rfid) ? 1 : 0;
+        loraDoc["alert_exit"]  = (lastUserMode == "EXIT" && a_rfid) ? 1 : 0;
+
+        // 2. SPLIT DATA PACKETS
+        switch (loraSequence) {
+            case 0: // GPS
+                loraDoc["type"] = "GPS";
+                loraDoc["gps_connected"] = gpsConnected ? 1 : 0;
+                loraDoc["lat"] = serialized(String(lat, 6));
+                loraDoc["lng"] = serialized(String(lng, 6));
+                logType = "GPS Data";
+                break;
+
+            case 1: // Environment
+                loraDoc["type"] = "ENV";
+                loraDoc["dht_temp"] = serialized(String(temp, 1));
+                loraDoc["humidity"] = serialized(String(hum, 1));
+                loraDoc["flame_A"] = flameAnalog;
+                loraDoc["flame_D"] = (flameDigital == LOW ? 1 : 0);
+                logType = "Environment (DHT/Flame)";
+                break;
+
+            case 2: // Bin Status
+                loraDoc["type"] = "BIN";
+                loraDoc["distance"] = serialized(String(dist, 1));
+                loraDoc["level"] = serialized(String(level, 1));
+                loraDoc["motion"] = a_motion ? 1 : 0; 
+                logType = "Bin Sensors";
+                break;
+
+            case 3: // RFID
+                loraDoc["type"] = "ID";
+                loraDoc["uid"] = lastRfidUID;
+                loraDoc["users_count"] = userCount;
+                // Specific data fields still here for detail
+                loraDoc["entry"] = (lastUserMode == "ENTRY" && a_rfid) ? 1 : 0;
+                loraDoc["exit"]  = (lastUserMode == "EXIT" && a_rfid) ? 1 : 0;
+                logType = "RFID Status";
+                break;
+
+            case 4: // System
+                loraDoc["type"] = "SYS";
+                loraDoc["pca"] = pcaConnected ? 1 : 0;
+                logType = "System Info";
+                break;
+        }
+
+        // Serialize and Send
+        char loraBuffer[255]; 
+        serializeJson(loraDoc, loraBuffer);
+
+        // Ensure shared SPI is in safe state before LoRa TX
+        digitalWrite(RFID_SDA, HIGH);   // deselect RFID
+        digitalWrite(LORA_NSS, HIGH);   // idle LoRa CS high before beginPacket()
+
+        LoRa.beginPacket();
+        LoRa.print(loraBuffer);
+        if(LoRa.endPacket()) {
+            Serial.print("📡 LoRa Sent (Seq ");
+            Serial.print(loraSequence);
+            Serial.print(" - ");
+            Serial.print(logType);
+            Serial.print("): ");
+            Serial.println(loraBuffer);
+        } else { 
+            Serial.println("⚠️ LoRa Failed");
+            loraOK = false; lastLoRaRetry = now; 
+        }
+
+        // Move to next sensor type for next 5-second interval
+        loraSequence++;
+        if (loraSequence > 4) loraSequence = 0; 
+    }
+
+    // LED Control
+    digitalWrite(LED_PIN, (a_bin_full) ? HIGH : LOW);
+
+    // after having sent timeout alert once, clear alert flag so telemetry doesn't keep reporting it forever
+    if (alert_rfid_timeout && rfidTimeoutAlertSent) {
+      // already reported, clear it to avoid repeated flag in later telemetry
+      alert_rfid_timeout = false;
+    }
+  }
+}

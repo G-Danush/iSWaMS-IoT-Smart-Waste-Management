@@ -1,0 +1,290 @@
+#include <SPI.h>
+#include <LoRa.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <ArduinoJson.h>
+
+// ==========================================
+//             PIN DEFINITIONS
+// ==========================================
+
+// LoRa Pins (Your Specific Wiring)
+#define SCK_PIN     18
+#define MISO_PIN    19
+#define MOSI_PIN    23
+#define SS_PIN      32    
+#define RST_PIN     14   
+#define DIO0_PIN    4    
+
+// LCD Settings
+#define LCD_ADDR    0x27 // If 0x27 doesn't work, try 0x3F
+#define LCD_COLS    16
+#define LCD_ROWS    2
+
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+
+// Onboard LED for Debugging
+#define ONBOARD_LED 2 
+
+// *** NEW: Buzzer Pin ***
+#define BUZZER_PIN  27
+
+// ==========================================
+//           GLOBAL DATA STORAGE
+// ==========================================
+
+// System Alerts
+bool alert_flame = false;
+bool alert_temp = false;
+bool alert_full = false;
+bool alert_tout = false;
+bool alert_motion = false;
+
+// *** NEW: RFID Alerts ***
+bool alert_entry = false;
+bool alert_exit = false;
+
+// GPS Data
+String gps_lat = "0.000000";
+String gps_lng = "0.000000";
+bool gps_connected = false;
+
+// Env Data
+String env_temp = "0.0";
+String env_hum = "0.0";
+
+// Bin Data
+String bin_level = "0.0";
+String bin_dist = "0.0";
+
+// RFID Data
+String rfid_uid = "None";
+int rfid_count = 0;
+String rfid_status = "Waiting";
+
+// Display Logic
+unsigned long lastDisplaySwitch = 0;
+const int displayInterval = 3000; 
+int currentScreen = 0; 
+
+// ==========================================
+//               SETUP
+// ==========================================
+void setup() {
+  // 1. Initialize Serial, LED, and Buzzer
+  Serial.begin(115200);
+  pinMode(ONBOARD_LED, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW); // Ensure buzzer is off initially
+  
+  // Blink LED 3 times to visually show ESP32 has reset and is running
+  for(int i=0; i<3; i++) {
+    digitalWrite(ONBOARD_LED, HIGH); delay(100);
+    digitalWrite(ONBOARD_LED, LOW);  delay(100);
+  }
+  
+  Serial.println("\n\n=== RECEIVER BOOTING ===");
+
+  // 2. Init LCD
+  Wire.begin(); 
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("System Boot...");
+  
+  Serial.println("LCD Initialized.");
+  delay(500);
+
+  // 3. Init LoRa
+  Serial.println("Starting LoRa...");
+  
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
+  LoRa.setSPI(SPI);
+  LoRa.setPins(SS_PIN, RST_PIN, DIO0_PIN);
+  
+  if (!LoRa.begin(433E6)) {
+    Serial.println("❌ LoRa FAILURE!");
+    Serial.println("Check: 1. Wiring (MISO/MOSI correct?)");
+    Serial.println("       2. Power (3.3V?)");
+    
+    lcd.clear();
+    lcd.print("LoRa Error!");
+    lcd.setCursor(0,1);
+    lcd.print("Check Wiring");
+    while (1) {
+        // Blink fast to indicate error
+        digitalWrite(ONBOARD_LED, HIGH); delay(50);
+        digitalWrite(ONBOARD_LED, LOW);  delay(50);
+    }
+  }
+  
+  LoRa.setSyncWord(0xF3); 
+  
+  Serial.println("✅ LoRa SUCCESS!");
+  Serial.println("Listening for 0xF3 packets on 433MHz...");
+  
+  lcd.clear();
+  lcd.print("LoRa Ready");
+  lcd.setCursor(0,1);
+  lcd.print("Waiting...");
+}
+
+// ==========================================
+//             FUNCTIONS
+// ==========================================
+
+void processJson(String jsonString) {
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, jsonString);
+
+  if (error) {
+    Serial.print("⚠️ JSON Error: ");
+    Serial.println(error.c_str());
+    return;
+  }
+
+  // Alerts - Read from JSON
+  if(doc.containsKey("alert_flame")) alert_flame = (doc["alert_flame"] == 1);
+  if(doc.containsKey("alert_temp"))  alert_temp  = (doc["alert_temp"] == 1);
+  if(doc.containsKey("alert_full"))  alert_full  = (doc["alert_full"] == 1);
+  if(doc.containsKey("alert_tout"))  alert_tout  = (doc["alert_tout"] == 1);
+  
+  // *** NEW: Read Entry/Exit Alerts ***
+  if(doc.containsKey("alert_entry")) alert_entry = (doc["alert_entry"] == 1);
+  if(doc.containsKey("alert_exit"))  alert_exit  = (doc["alert_exit"] == 1);
+
+  // Parsing based on type
+  const char* type = doc["type"];
+  Serial.print("Packet Type: "); Serial.println(type); 
+  
+  if (strcmp(type, "GPS") == 0) {
+    if(doc.containsKey("lat")) gps_lat = doc["lat"].as<String>();
+    if(doc.containsKey("lng")) gps_lng = doc["lng"].as<String>();
+    gps_connected = (doc["gps_connected"] == 1);
+  }
+  else if (strcmp(type, "ENV") == 0) {
+    if(doc.containsKey("dht_temp")) env_temp = doc["dht_temp"].as<String>();
+    if(doc.containsKey("humidity")) env_hum  = doc["humidity"].as<String>();
+  }
+  else if (strcmp(type, "BIN") == 0) {
+    if(doc.containsKey("level")) bin_level = doc["level"].as<String>();
+    if(doc.containsKey("distance")) bin_dist = doc["distance"].as<String>();
+    if(doc.containsKey("motion")) alert_motion = (doc["motion"] == 1);
+  }
+  else if (strcmp(type, "ID") == 0) {
+    if(doc.containsKey("uid")) rfid_uid = doc["uid"].as<String>();
+    if(doc.containsKey("users_count")) rfid_count = doc["users_count"].as<int>();
+    
+    // Status Logic for LCD Text
+    int isEntry = doc["entry"];
+    int isExit = doc["exit"];
+    if (isEntry == 1) rfid_status = "ENTRY";
+    else if (isExit == 1) rfid_status = "EXIT";
+    else rfid_status = "Logged";
+  }
+}
+
+void showEnvironment() {
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: "); lcd.print(env_temp); lcd.print("C   "); 
+  lcd.setCursor(0, 1);
+  lcd.print("Hum : "); lcd.print(env_hum); lcd.print("%   ");
+}
+
+void showBinStatus() {
+  lcd.setCursor(0, 0);
+  lcd.print("Bin Lvl: "); lcd.print(bin_level); lcd.print("%   ");
+  lcd.setCursor(0, 1);
+  lcd.print(alert_motion ? "Motion: YES     " : "Motion: NO      ");
+}
+
+void showGPS() {
+  lcd.setCursor(0, 0);
+  if (!gps_connected) {
+    lcd.print("GPS: No Fix     ");
+    lcd.setCursor(0, 1);
+    lcd.print("Searching...    ");
+  } else {
+    lcd.print("L:"); lcd.print(gps_lat); 
+    lcd.setCursor(0, 1);
+    lcd.print("N:"); lcd.print(gps_lng); 
+  }
+}
+
+void showRFID() {
+  lcd.setCursor(0, 0);
+  lcd.print("ID:"); lcd.print(rfid_uid); 
+  for(int i=3+rfid_uid.length(); i<16; i++) lcd.print(" ");
+  
+  lcd.setCursor(0, 1);
+  lcd.print(rfid_status); 
+  lcd.print(" (Cnt:"); lcd.print(rfid_count); lcd.print(")");
+}
+
+void showAlert(String line1, String line2) {
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  for(int i=line1.length(); i<16; i++) lcd.print(" "); 
+  
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+  for(int i=line2.length(); i<16; i++) lcd.print(" ");
+}
+
+// ==========================================
+//               LOOP
+// ==========================================
+void loop() {
+  // 1. Check for LoRa Packets
+  int packetSize = LoRa.parsePacket();
+  
+  if (packetSize) {
+    // Blink LED briefly on receive
+    digitalWrite(ONBOARD_LED, HIGH);
+    
+    String recv = "";
+    while (LoRa.available()) {
+      recv += (char)LoRa.read();
+    }
+    digitalWrite(ONBOARD_LED, LOW);
+    
+    Serial.print("RX ("); Serial.print(packetSize); Serial.print(" bytes): "); 
+    Serial.println(recv);
+    processJson(recv);
+  }
+
+  // 2. LCD Management & BUZZER LOGIC
+  unsigned long now = millis();
+
+  // --- CRITICAL ALERT BUZZER LOGIC ---
+  // Buzzer rings if ANY critical condition is true
+  if (alert_flame || alert_full || alert_tout || alert_temp || alert_entry || alert_exit) {
+      digitalWrite(BUZZER_PIN, HIGH);
+  } else {
+      digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  // --- CRITICAL ALERT SCREEN OVERRIDE ---
+  if (alert_flame) { showAlert("!!! FIRE !!!", "DETECTED"); return; }
+  if (alert_full)  { showAlert("!!! ALERT !!!", "BIN IS FULL"); return; }
+  if (alert_tout)  { showAlert("!!! TIMEOUT !!!", "RFID RESET"); return; }
+  if (alert_temp)  { showAlert("!!! HEAT !!!", "HIGH TEMP"); return; }
+  if (alert_entry) { showAlert("RFID ALERT:", "USER ENTRY"); return; }
+  if (alert_exit)  { showAlert("RFID ALERT:", "USER EXIT"); return; }
+
+  // --- NORMAL CYCLIC DISPLAY ---
+  if (now - lastDisplaySwitch > displayInterval) {
+    lastDisplaySwitch = now;
+    lcd.clear(); 
+    
+    currentScreen++;
+    if (currentScreen > 3) currentScreen = 0;
+
+    switch (currentScreen) {
+      case 0: showEnvironment(); break;
+      case 1: showBinStatus(); break;
+      case 2: showGPS(); break;
+      case 3: showRFID(); break;
+    }
+  }
+}
