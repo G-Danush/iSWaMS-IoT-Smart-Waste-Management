@@ -115,6 +115,14 @@ To overcome the **255-byte LoRa payload limitation**, the system implements a **
 ## 🗂️ Repository Structure
 ```
 iSWaMS-IoT-Smart-Waste-Management/
+├── dashboard/
+│   └── cps_swams_dashboard.json
+|
+├── docs/
+│   ├── IEEE_Format_IoT_SWaMS.pdf
+│   ├── SWaMS_CPS_Project_PPT_Rev3_9-Dec-2025.pptx
+│   └── SWaMS_IoT_Project_PPT_Rev2_9-Dec-2025.pptx
+|
 ├── firmware/
 │   ├── transmitter/
 │   │   ├── transmitter.ino
@@ -128,18 +136,10 @@ iSWaMS-IoT-Smart-Waste-Management/
 │   │   ├── iSWaMS_Transmitter_Diagram.jpg
 │   │   ├── pin-mapping.md
 │   │   └── iSWaMS_Receiver_Diagram.jpg
-│   ├── block-diagrams/
-│   │   ├── system_architecture.jpg
-│   │   ├── Transmitter_block_diagram.png
-│   │   └── Receiver_block_diagram.png
-|
-├── dashboard/
-│   └── cps_swams_dashboard.json
-|
-├── docs/
-│   ├── IEEE_Format_IoT_SWaMS.pdf
-│   ├── SWaMS_CPS_Project_PPT_Rev3_9-Dec-2025.pptx
-│   └── SWaMS_IoT_Project_PPT_Rev2_9-Dec-2025.pptx
+│   └── block-diagrams/
+│       ├── system_architecture.jpg
+│       ├── Transmitter_block_diagram.png
+│       └── Receiver_block_diagram.png
 |
 ├── ML_data/
 │   ├── VRP_Whatsapp_test1.html
@@ -150,8 +150,9 @@ iSWaMS-IoT-Smart-Waste-Management/
 │   └── google_links.csv
 |
 ├── README.md
-├── LICENSE
-└── .gitignore
+├── .gitignore
+└── LICENSE
+
 ```
 
 ---
