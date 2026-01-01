@@ -74,6 +74,7 @@ iSWaMS-IoT-Smart-Waste-Management/
 │       └── pin_mapping.md
 |
 ├── ML_data/
+│   ├── README.md
 │   ├── SWaMS_VRP_11DEC2025.html
 │   ├── VRP_Whatsapp_test1.html 
 │   ├── google_links.csv
@@ -107,4 +108,5 @@ This project is licensed under the MIT License.
 - Guntupalli Danush
 - Nagaraju Marella
 - Saba Afreen Khatoon
+
 
