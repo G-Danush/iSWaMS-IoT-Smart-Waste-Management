@@ -47,6 +47,9 @@ The system consists of:
 ## 📂 Repository Structure
 ```
 iSWaMS-IoT-Smart-Waste-Management/
+├── assets/
+|   └── banner.png
+|
 ├── dashboard/
 │   └── cps_swams_dashboard.json
 |
@@ -108,5 +111,6 @@ This project is licensed under the MIT License.
 - Guntupalli Danush
 - Nagaraju Marella
 - Saba Afreen Khatoon
+
 
 
