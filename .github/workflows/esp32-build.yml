@@ -1,0 +1,44 @@
+name: ESP32 Build Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  esp32-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP32 core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install required libraries
+        run: |
+          arduino-cli lib install "LoRa"
+          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "DHT sensor library"
+          arduino-cli lib install "TinyGPSPlus"
+          arduino-cli lib install "MFRC522"
+
+      - name: Compile ESP32 Transmitter
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            firmware/transmitter/transmitter.ino
+
+      - name: Compile ESP32 Receiver
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            firmware/receiver/receiver.ino
