@@ -47,33 +47,30 @@ The system consists of:
 ## 📂 Repository Structure
 ```
 iSWaMS-IoT-Smart-Waste-Management/
-├── firmware/
-│   ├── transmitter/
-│   │   ├── transmitter.ino
-│   │   ├── transmitter.docx
-│   │   └── transmitter.txt
-│   └── receiver/
-│       ├── receiver.ino
-│       ├── receiver.docx
-│       └── receiver.txt
-|
-├── hardware/
-│   ├── pin-diagrams/
-│   │   ├── iSWaMS_Transmitter_Diagram.jpg
-│   │   └── iSWaMS_Receiver_Diagram.jpg
-│   ├── block-diagrams/
-│   │   ├── system_architecture.jpg
-│   │   ├── Transmitter_block_diagram.png
-│   │   └── Receiver_block_diagram.png
-|
 ├── dashboard/
 │   └── cps_swams_dashboard.json
 |
 ├── docs/
 │   ├── IEEE_Format_IoT_SWaMS.pdf
-│   ├── IEEE_Format_IoT_SWaMS.docx
 │   ├── SWaMS_CPS_Project_PPT_Rev3_9-Dec-2025.pptx
 │   └── SWaMS_IoT_Project_PPT_Rev2_9-Dec-2025.pptx
+|
+├── firmware/
+│   ├── receiver/
+│   │   ├── receiver.ino
+│   │   └── receiver.txt
+│   └── transmitter/
+│       ├── transmitter.ino
+│       └── transmitter.txt
+|
+├── hardware/
+│   ├── pin-diagrams/
+│   │   ├── iSWaMS_Transmitter_Diagram.jpg
+│   │   └── iSWaMS_Receiver_Diagram.jpg
+│   └── block-diagrams/
+│       ├── system_architecture.jpg
+│       ├── Transmitter_block_diagram.png
+│       └── Receiver_block_diagram.png
 |
 ├── ML_data/
 │   ├── VRP_Whatsapp_test1.html
@@ -84,8 +81,8 @@ iSWaMS-IoT-Smart-Waste-Management/
 │   └── google_links.csv
 |
 ├── README.md
-├── LICENSE
-└── .gitignore
+├── .gitignore
+└── LICENSE
 ```
 
 ## ⚙️ How to Run
@@ -108,4 +105,3 @@ This project is licensed under the MIT License.
 - Guntupalli Danush
 - Nagaraju Marella
 - Saba Afreen Khatoon
-
