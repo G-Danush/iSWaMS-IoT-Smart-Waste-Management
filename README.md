@@ -142,6 +142,7 @@ iSWaMS-IoT-Smart-Waste-Management/
 │       └── pin_mapping.md
 |
 ├── ML_data/
+│   ├── README.md
 │   ├── SWaMS_VRP_11DEC2025.html
 │   ├── VRP_Whatsapp_test1.html 
 │   ├── google_links.csv
