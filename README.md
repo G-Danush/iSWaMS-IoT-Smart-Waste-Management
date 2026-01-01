@@ -15,7 +15,7 @@
 ![Language](https://img.shields.io/badge/Language-C%2B%2B-brightgreen)
 ![IDE](https://img.shields.io/badge/IDE-Arduino-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
-![Build Status](https://img.shields.io/github/actions/workflow/status/G-Danush/iSWaMS-IoT-Smart-Waste-Management/arduino-build.yml?branch=main)
+![Build Status](https://img.shields.io/github/actions/workflow/status/G-Danush/iSWaMS-IoT-Smart-Waste-Management/esp32-build.yml?branch=main)
 
 ![GitHub repo size](https://img.shields.io/github/repo-size/G-Danush/iSWaMS-IoT-Smart-Waste-Management)
 ![GitHub last commit](https://img.shields.io/github/last-commit/G-Danush/iSWaMS-IoT-Smart-Waste-Management)
