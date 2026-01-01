@@ -208,7 +208,7 @@ prevent brownout conditions.
 ![Transmitter Block Diagram](Block_Diagrams/Transmitter_Block_Diagram.png)
 
 ### 🖼️ Receiver Block Diagram
-![Receiver Block Diagram](Block_Diagrams/Receiver_Block_Diagram.png)
+![Receiver Block Diagram](hardware/block-diagrams/receiver_block_diagram.png)
 
 ---
 
@@ -340,6 +340,7 @@ This combined **table + diagram** approach ensures:
 - Better documentation clarity
 
 📌 Refer to the diagrams above for physical connections.
+
 
 
 
