@@ -138,7 +138,6 @@ iSWaMS-IoT-Smart-Waste-Management/
 |
 ├── docs/
 │   ├── IEEE_Format_IoT_SWaMS.pdf
-│   ├── IEEE_Format_IoT_SWaMS.docx
 │   ├── SWaMS_CPS_Project_PPT_Rev3_9-Dec-2025.pptx
 │   └── SWaMS_IoT_Project_PPT_Rev2_9-Dec-2025.pptx
 |
