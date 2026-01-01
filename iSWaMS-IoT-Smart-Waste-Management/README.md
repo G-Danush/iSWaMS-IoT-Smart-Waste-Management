@@ -64,25 +64,27 @@ iSWaMS-IoT-Smart-Waste-Management/
 │       └── transmitter.txt
 |
 ├── hardware/
-│   ├── pin-diagrams/
-│   │   ├── iSWaMS_Transmitter_Diagram.jpg
-│   │   └── iSWaMS_Receiver_Diagram.jpg
-│   └── block-diagrams/
-│       ├── system_architecture.jpg
-│       ├── Transmitter_block_diagram.png
-│       └── Receiver_block_diagram.png
+│   ├── block-diagrams/
+│   │   ├── receiver_block_diagram.png
+│   │   ├── system_architecture.jpg
+│   │   └── transmitter_block_diagram.png
+│   └── pin-diagrams/
+│       ├── iSWaMS_receiver_Diagram.jpg
+│       ├── iSWaMS_transmitter_Diagram.jpg
+│       └── pin_mapping.md
 |
 ├── ML_data/
-│   ├── VRP_Whatsapp_test1.html
 │   ├── SWaMS_VRP_11DEC2025.html
-│   ├── optimized_routes_map.html
-│   ├── smart_waste_ml_and_vrp.html
+│   ├── VRP_Whatsapp_test1.html 
+│   ├── google_links.csv
 │   ├── optimized_routes.csv
-│   └── google_links.csv
+│   ├── optimized_routes_map.html 
+│   └── smart_waste_ml_and_vrp.html
 |
 ├── README.md
 ├── .gitignore
 └── LICENSE
+
 ```
 
 ## ⚙️ How to Run
@@ -105,3 +107,4 @@ This project is licensed under the MIT License.
 - Guntupalli Danush
 - Nagaraju Marella
 - Saba Afreen Khatoon
+
