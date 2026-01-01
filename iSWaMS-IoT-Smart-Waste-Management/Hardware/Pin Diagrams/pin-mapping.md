@@ -71,9 +71,6 @@ prevent brownout conditions.
 | 🟠 RST | 🟠 GPIO 14 | Reset |
 | 🟠 DIO0 | 🟠 GPIO 4 | Interrupt |
 
-### 🖼️ Diagram
-![LoRa Wiring Diagram](pin-diagrams/iSWaMS_Transmitter_Diagram.jpg)
-
 ---
 
 ## 📏 Ultrasonic Sensor (HC-SR04)
@@ -86,9 +83,6 @@ prevent brownout conditions.
 | ⚫ GND | ⚫ GND | Ground |
 | 🟡 TRIG | 🟡 GPIO 25 | Trigger |
 | 🟣 ECHO | 🟣 GPIO 34 | Echo (Input only) |
-
-### 🖼️ Diagram
-![HC-SR04 Wiring](pin-diagrams/iSWaMS_Transmitter_Diagram.jpg)
 
 ---
 
@@ -178,9 +172,6 @@ prevent brownout conditions.
 | 🟠 NSS | 🟠 GPIO 32 |
 | 🟠 RST | 🟠 GPIO 14 |
 | 🟠 DIO0 | 🟠 GPIO 4 |
-
-### 🖼️ Diagram
-![Receiver LoRa Wiring](pin-diagrams/iSWaMS_Receiver_Diagram.jpg)
 
 ---
 
@@ -349,3 +340,4 @@ This combined **table + diagram** approach ensures:
 - Better documentation clarity
 
 📌 Refer to the diagrams above for physical connections.
+
