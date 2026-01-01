@@ -199,19 +199,6 @@ prevent brownout conditions.
 
 ---
 
-## 🧩 System Block Diagram
-
-### 🖼️ Overall Architecture
-![System Architecture](Block_Diagrams/System_Architecture.jpg)
-
-### 🖼️ Transmitter Block Diagram
-![Transmitter Block Diagram](Block_Diagrams/Transmitter_Block_Diagram.png)
-
-### 🖼️ Receiver Block Diagram
-![Receiver Block Diagram](iSWaMS-IoT-Smart-Waste-Management/hardware/block_diagrams/receiver_block_diagram.png)
-
----
-
 ## ⚠️ Important Notes
 
 - GPIO **34 & 35 are input-only**
@@ -340,6 +327,7 @@ This combined **table + diagram** approach ensures:
 - Better documentation clarity
 
 📌 Refer to the diagrams above for physical connections.
+
 
 
 
