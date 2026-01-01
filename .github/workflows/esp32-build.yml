@@ -37,10 +37,10 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32 \
-            firmware/transmitter/transmitter.ino
+            firmware/transmitter
 
       - name: Compile ESP32 Receiver
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32 \
-            firmware/receiver/receiver.ino
+            firmware/receiver
