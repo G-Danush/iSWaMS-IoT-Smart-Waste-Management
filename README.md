@@ -118,11 +118,9 @@ iSWaMS-IoT-Smart-Waste-Management/
 ├── firmware/
 │   ├── transmitter/
 │   │   ├── transmitter.ino
-│   │   ├── transmitter.docx
 │   │   └── transmitter.txt
 │   └── receiver/
 │       ├── receiver.ino
-│       ├── receiver.docx
 │       └── receiver.txt
 |
 ├── hardware/
