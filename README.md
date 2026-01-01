@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="iSWaMS Project Banner" width="100%">
+</p>
+
 # iSWaMS-IoT-Smart-Waste-Management
 
 ![Platform](https://img.shields.io/badge/Platform-ESP32-blue)
