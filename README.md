@@ -115,6 +115,9 @@ To overcome the **255-byte LoRa payload limitation**, the system implements a **
 ## 🗂️ Repository Structure
 ```
 iSWaMS-IoT-Smart-Waste-Management/
+├── assets/
+|   └── banner.png
+|
 ├── dashboard/
 │   └── cps_swams_dashboard.json
 |
