@@ -202,13 +202,13 @@ prevent brownout conditions.
 ## 🧩 System Block Diagram
 
 ### 🖼️ Overall Architecture
-![System Architecture](block-diagrams/system_architecture.jpg)
+![System Architecture](Block-Diagrams/System_Architecture.jpg)
 
 ### 🖼️ Transmitter Block Diagram
-![Transmitter Block Diagram](block-diagrams/Transmitter_block_diagram.png)
+![Transmitter Block Diagram](Block-Diagrams/Transmitter_Block_Diagram.png)
 
 ### 🖼️ Receiver Block Diagram
-![Receiver Block Diagram](block-diagrams/Receiver_block_diagram.png)
+![Receiver Block Diagram](Block-Diagrams/Receiver_Block_Diagram.png)
 
 ---
 
@@ -340,4 +340,5 @@ This combined **table + diagram** approach ensures:
 - Better documentation clarity
 
 📌 Refer to the diagrams above for physical connections.
+
 
